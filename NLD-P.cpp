@@ -1,12 +1,15 @@
 #include <opencv/cv.hpp>
 #include <random>
+#include <iostream>
+#include <vector>
+#include <algorithm>
 
 using namespace std;
 using namespace cv;
 
 float Pi = 3.1415926;
 
-Vec3b getAirlight(Mat &img);
+Vec3b getAirlight(Mat &img, int = 240);
 
 void Rectangle2Sphere(int x, int y, int z, float &r, float &phi, float &theta);
 float **Rectangle2Sphere(Mat &img, Vec3b Airlight);
@@ -14,14 +17,16 @@ float **Rectangle2Sphere(Mat &img, Vec3b Airlight);
 /*
 * cluster according to (theta,phi)
 */
-void Cluster(float **data, float **&center, int *& label, int sample_point = 100);
+void Cluster(float **data, float **&center, int *&label, int sample_point = 100);
 
 void NonLocalDehaze(Mat &img, Vec3b Airlight, int sample_point)
 {
-    float** center = nullptr;
-    int* label = nullptr;
-    Cluster(Rectangle2Sphere(img, Airlight),center,label);
+    float **center = nullptr;
+    int *label = nullptr;
+    Cluster(Rectangle2Sphere(img, Airlight), center, label);
 }
+
+void medianBlur(float **transformission, int w, int h, int kernel_size = 5);
 
 int main()
 {
@@ -37,7 +42,7 @@ int main()
  * @param data input data
  * @param sample_point the number of cluster center in each dimention
  */
-void Cluster(float **data, Mat &img, float **&center, int*& label, int sample_point = 100)
+void Cluster(float **data, Mat &img, float **&center, int *&label, int sample_point = 100)
 {
     float *r = new float[sample_point];
     float *phi = new float[sample_point];
@@ -148,8 +153,67 @@ void Rectangle2Sphere(int x, int y, int z, float &r, float &phi, float &theta)
              : (theta = acos((float)z / r) * 180 / Pi);
 }
 
-
-Vec3b getAirlight(Mat &img)
+Vec3b getAirlight(Mat &img, int thresholds = 240)
 {
-    
+    Vec3b proposal[256];
+    Vec3b Airlight(0, 0, 0);
+    int bucket[256];
+
+    for (int i = 0; i < 256; i++)
+    {
+        proposal[i][0] = 0;
+        proposal[i][1] = 0;
+        proposal[i][2] = 0;
+        bucket[i] = 0;
+    }
+
+    for (int i = 0; i < img.rows; i++)
+    {
+        for (int j = 0; j < img.cols; j++)
+        {
+            int d = min(img.at<Vec3b>(i, j)[0], img.at<Vec3b>(i, j)[1], img.at<Vec3b>(i, j)[2]);
+            bucket[d]++;
+            if (proposal[d][0] + proposal[d][1] + proposal[d][2] < img.at<Vec3b>(i, j)[0] + img.at<Vec3b>(i, j)[1] + img.at<Vec3b>(i, j)[2])
+            {
+                proposal[d] = img.at<Vec3b>(i, j);
+            }
+        }
+    }
+
+    int sum = 0;
+    for (int i = 255; i >= 256; i--)
+    {
+        if (Airlight[0] + Airlight[1] + Airlight[2] < proposal[i][0] + proposal[i][1] + proposal[i][2])
+        {
+            Airlight = proposal[i];
+        }
+        sum += bucket[i];
+        if (sum > thresholds)
+            break;
+    }
+
+    return Airlight;
+}
+
+void medianBlur(float *transformission, int w, int h, int kernel_size = 5)
+{
+    float *new_t = new float[w * h];
+    int half_kernel_size = kernel_size/2;
+    int half_size = kernel_size*kernel_size/2;
+
+    vector<float> win;
+    for (int i = half_kernel_size; i < w - half_kernel_size; i++)
+    {
+        for (int j = half_kernel_size; j < h - half_kernel_size; j++)
+        {
+            win.clear();
+            for (int m = -half_kernel_size; m < half_kernel_size; m++)
+                for (int n = -half_kernel_size; n < half_kernel_size; n++)
+                {
+                    win.push_back(transformission[(i+m)*h + j+n]);
+                }
+            sort(win.begin(),win.end());
+            new_t[i*h+j] = win[half_size];
+        }
+    }
 }
